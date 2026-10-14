@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Poll results</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/wordcloud2.js/1.2.2/wordcloud2.min.js"></script>
+</head>
+<body class="results">
+<header><h1 id="title">Poll results</h1></header>
+<main>
+  <p class="count" id="count">Loading...</p>
+  <div class="grid" id="grid"></div>
+</main>
+<script src="config.js"></script>
+<script>
+const key = new URLSearchParams(location.search).get('poll');
+const poll = POLLS[key];
+const grid = document.getElementById('grid');
+let lastSig = '';
+
+// Merge spelling variants so "gdp per capita", "GDP pc" and "gdp/capita" land together.
+function norm(s) {
+  return s.toLowerCase().replace(/[^\p{L}\p{N}%$ ]+/gu, ' ').replace(/\s+/g, ' ').trim()
+          .replace(/\bper capita\b|\bpc\b|\bcapita\b/g, 'per capita')
+          .replace(/\bper per capita\b/g, 'per capita');
+}
+
+function render(rows) {
+  document.getElementById('count').textContent =
+    rows.length + ' answers' + ' · updates every 5 seconds';
+  grid.innerHTML = '';
+  poll.questions.forEach(function (q) {
+    const box = document.createElement('section');
+    const h = document.createElement('h2');
+    h.textContent = q.text;
+    box.appendChild(h);
+    const mine = rows.filter(function (r) { return r.question === q.id; });
+    if (q.type === 'words') {
+      const c = document.createElement('div');
+      c.id = 'cloud';
+      box.appendChild(c);
+      grid.appendChild(box);
+      const freq = {};
+      mine.forEach(function (r) { const w = norm(String(r.answer)); if (w) freq[w] = (freq[w] || 0) + 1; });
+      const list = Object.entries(freq).sort(function (a, b) { return b[1] - a[1]; });
+      if (!list.length) return;
+      const max = list[0][1];
+      WordCloud(c, {
+        list: list.map(function (p) { return [p[0], 18 + 62 * p[1] / max]; }),
+        fontFamily: 'Segoe UI, Roboto, Helvetica, Arial, sans-serif',
+        color: function (w, wt) { return wt > 55 ? '#003863' : (wt > 35 ? '#0097A7' : '#595959'); },
+        rotateRatio: 0, gridSize: 10, shrinkToFit: true, drawOutOfBound: false
+      });
+    } else {
+      const counts = {};
+      q.options.forEach(function (o) { counts[o] = 0; });
+      mine.forEach(function (r) { if (r.answer in counts) counts[r.answer]++; });
+      const n = mine.length || 1;
+      const top = Math.max.apply(null, Object.values(counts));
+      q.options.forEach(function (o) {
+        const b = document.createElement('div');
+        b.className = 'bar' + (counts[o] === top && top > 0 ? ' top' : '');
+        const pct = Math.round(100 * counts[o] / n);
+        b.innerHTML = '<div class="lab"><span></span><span>' + pct + '% (' + counts[o] + ')</span></div>' +
+                      '<div class="track"><div class="fill" style="width:' + pct + '%"></div></div>';
+        b.querySelector('.lab span').textContent = o;
+        box.appendChild(b);
+      });
+      grid.appendChild(box);
+    }
+  });
+}
+
+function load() {
+  fetch(SCRIPT_URL + '?poll=' + encodeURIComponent(key))
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      const sig = JSON.stringify(d.rows);
+      if (sig !== lastSig) { lastSig = sig; render(d.rows); }
+    })
+    .catch(function () { document.getElementById('count').textContent = 'Cannot reach the results. Is SCRIPT_URL set in config.js?'; });
+}
+
+if (!poll) {
+  document.getElementById('count').textContent = 'This poll does not exist.';
+} else {
+  document.getElementById('title').textContent = poll.title + ' — results';
+  load();
+  setInterval(load, 5000);
+}
+</script>
+</body>
+</html>

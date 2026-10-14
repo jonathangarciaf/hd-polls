@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Class poll</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><h1 id="title">Class poll</h1></header>
+<main>
+  <form id="form"></form>
+  <div id="msg" class="msg"></div>
+</main>
+<script src="config.js"></script>
+<script>
+const key = new URLSearchParams(location.search).get('poll');
+const poll = POLLS[key];
+const form = document.getElementById('form');
+const msg = document.getElementById('msg');
+const doneKey = 'hdpoll-done-' + key;
+
+function el(tag, attrs, text) {
+  const e = document.createElement(tag);
+  Object.assign(e, attrs || {});
+  if (text) e.textContent = text;
+  return e;
+}
+
+function alreadyDone() {
+  try { return localStorage.getItem(doneKey) === '1'; } catch (e) { return false; }
+}
+
+if (!poll) {
+  msg.textContent = 'This poll does not exist.';
+} else if (alreadyDone()) {
+  document.getElementById('title').textContent = poll.title;
+  msg.textContent = 'Thanks, your answers are in. Look at the screen.';
+} else {
+  document.getElementById('title').textContent = poll.title;
+  poll.questions.forEach(function (q) {
+    const box = el('div', { className: 'q' });
+    box.appendChild(el('h2', {}, q.text));
+    if (q.hint) box.appendChild(el('p', { className: 'hint' }, q.hint));
+    if (q.type === 'words') {
+      for (let i = 0; i < (q.max || 1); i++) {
+        box.appendChild(el('input', { type: 'text', name: q.id, maxLength: 40, autocomplete: 'off', placeholder: i === 0 ? 'Your answer' : 'Optional' }));
+      }
+    } else {
+      q.options.forEach(function (o) {
+        const lab = el('label', { className: 'opt' });
+        lab.appendChild(el('input', { type: 'radio', name: q.id, value: o }));
+        lab.appendChild(document.createTextNode(o));
+        box.appendChild(lab);
+      });
+    }
+    form.appendChild(box);
+  });
+  const btn = el('button', { type: 'submit' }, 'Send');
+  form.appendChild(btn);
+
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    const answers = [];
+    poll.questions.forEach(function (q) {
+      form.querySelectorAll('[name="' + q.id + '"]').forEach(function (inp) {
+        if ((inp.type === 'radio' && inp.checked) || (inp.type === 'text' && inp.value.trim())) {
+          answers.push({ question: q.id, answer: inp.value.trim() });
+        }
+      });
+    });
+    if (!answers.length) { msg.textContent = 'Please answer at least one question.'; return; }
+    btn.disabled = true;
+    msg.textContent = 'Sending...';
+    const respondent = Math.random().toString(36).slice(2, 10);
+    // text/plain avoids a CORS preflight; Apps Script reads the raw body.
+    fetch(SCRIPT_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' },
+                        body: JSON.stringify({ poll: key, respondent: respondent, answers: answers }) })
+      .then(function () {
+        try { localStorage.setItem(doneKey, '1'); } catch (e) {}
+        form.remove();
+        msg.textContent = 'Thanks, your answers are in. Look at the screen.';
+      })
+      .catch(function () {
+        btn.disabled = false;
+        msg.className = 'msg err';
+        msg.textContent = 'Could not send. Check your connection and try again.';
+      });
+  });
+}
+</script>
+</body>
+</html>
